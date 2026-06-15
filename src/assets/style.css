@@ -1,0 +1,30 @@
+@font-face {
+  font-family: "Outfit";
+  src: url("./fonts/Outfit/Outfit-VariableFont_wght.ttf") format("truetype");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --cobalt: #003DA5;
+  --gold: #FFC72C;
+  --charcoal: #333F48;
+  --dark-blue: #0A2240;
+  --pure-white: #FFFFFF;
+  --light-gray-bg: #F9FAFC;
+  --soft-border: rgba(0, 61, 165, 0.08);
+}
+
+html,
+body,
+#app {
+  font-family: "Outfit", sans-serif;
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}

@@ -1,0 +1,86 @@
+name: Deploy Ecom UI to DEMO
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    environment: demo
+
+    env:
+      IP: ${{ vars.IP }}
+      SERVER_LOCATION: ${{ vars.SERVER_LOCATION }}
+      TEAMS_WEBHOOK_URL: ${{ vars.TEAMS_WEBHOOK_URL }}
+      GITHUB_SHA: ${{ github.sha }}
+      GITHUB_ACTOR: ${{ github.actor }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Install dependencies
+        run: |
+          rm package-lock.json
+          npm install
+
+      - name: Build
+        run: npm run build-demo
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Enable Docker layer caching
+        uses: satackey/action-docker-layer-caching@v0.0.11
+        continue-on-error: true
+
+      - name: Build Docker image with cache
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile
+          tags: ecom-ui:latest
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Save Docker image to tar
+        run: docker save -o ecom-ui.tar ecom-ui:latest
+
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.PROENX_SSH_PRIVATE_KEY }}
+
+      - name: Add host to known_hosts
+        run: ssh-keyscan -H $IP >> ~/.ssh/known_hosts
+
+      - name: Copy Docker image to server
+        run: scp ecom-ui.tar $SERVER_LOCATION:/home/centos/services/docker-build
+
+      - name: Stop and remove existing container
+        run: |
+          ssh -o StrictHostKeyChecking=no $SERVER_LOCATION 'docker stop ecom-ui || true'
+          ssh -o StrictHostKeyChecking=no $SERVER_LOCATION 'docker rm ecom-ui || true'
+
+      - name: Remove existing Docker image
+        run: ssh -o StrictHostKeyChecking=no $SERVER_LOCATION 'docker image rm ecom-ui || true'
+
+      - name: Load Docker image on server
+        run: ssh -o StrictHostKeyChecking=no $SERVER_LOCATION 'docker load -i services/docker-build/ecom-ui.tar'
+
+      - name: Run new container
+        run: ssh -o StrictHostKeyChecking=no $SERVER_LOCATION 'docker run --name ecom-ui -p 9696:80 -d ecom-ui:latest'
+
+      - name: Notify Teams
+        run: |
+          curl -d "{\"text\":\"Ecom UI deployed in DEMO.\nCommit: $GITHUB_SHA\nBy: $GITHUB_ACTOR\"}" -H "Content-Type:application/json" "$TEAMS_WEBHOOK_URL"
