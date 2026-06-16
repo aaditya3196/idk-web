@@ -227,6 +227,7 @@ import { allProducts } from "../../data/products.js";
 import AddressFormCard from "./AddressFormCard.vue";
 import AppNavbar from "../AppNavbar.vue";
 import Footer from "../FooterView.vue";
+import { getDemoAddressesStorageKey } from "../../stores/useDemoStore.js";
 
 const cartStore = useCartStore();
 const appStore = useAppStore();
@@ -492,7 +493,7 @@ async function loadCustomerAddresses() {
 
   // Demo fallback — load from localStorage
   try {
-    const raw = localStorage.getItem("demo.addresses");
+    const raw = localStorage.getItem(getDemoAddressesStorageKey());
     const saved = raw ? JSON.parse(raw) : [];
     if (Array.isArray(saved) && saved.length) {
       addresses.value = saved;
@@ -536,9 +537,10 @@ async function deleteCustomerAddressById(addressId) {
   }
 
   // Demo fallback
-  const raw = localStorage.getItem("demo.addresses");
-  const list = (() => { try { return JSON.parse(raw) || []; } catch { return []; } })();
-  localStorage.setItem("demo.addresses", JSON.stringify(list.filter((a) => a.id !== addressId)));
+  const addressesKey = getDemoAddressesStorageKey();
+const raw = localStorage.getItem(addressesKey);
+const list = (() => { try { return JSON.parse(raw) || []; } catch { return []; } })();
+localStorage.setItem(addressesKey, JSON.stringify(list.filter((a) => a.id !== addressId)));
 }
 
 function buildAddressPayload(
@@ -629,8 +631,9 @@ async function saveCustomerAddress({
   }
 
   // Demo fallback — save to localStorage
-  const raw = localStorage.getItem("demo.addresses");
-  const existing_list = (() => { try { return JSON.parse(raw) || []; } catch { return []; } })();
+  const addressesKey = getDemoAddressesStorageKey();
+const raw = localStorage.getItem(addressesKey);
+const existing_list = (() => { try { return JSON.parse(raw) || []; } catch { return []; } })();
 
   if (addressId !== null) {
     // Edit
@@ -651,7 +654,7 @@ async function saveCustomerAddress({
           }
         : a
     );
-    localStorage.setItem("demo.addresses", JSON.stringify(updated));
+    localStorage.setItem(addressesKey, JSON.stringify(updated));
     return null;
   }
 
@@ -680,7 +683,7 @@ async function saveCustomerAddress({
   };
 
   const updated_list = [...existing_list, newAddr];
-  localStorage.setItem("demo.addresses", JSON.stringify(updated_list));
+  localStorage.setItem(addressesKey, JSON.stringify(updated_list));
   return { id: newId };
 }
 

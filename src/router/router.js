@@ -119,15 +119,17 @@ function hasAuthToken() {
   }
 
   // Demo login fallback — set by useDemoStore after registration or login
-  const demoUserRaw = window.localStorage.getItem("demo.user");
-  if (demoUserRaw) {
-    try {
-      const demoUser = JSON.parse(demoUserRaw);
-      if (demoUser && demoUser.password) return true;
-    } catch (error) {
-      // ignore
-    }
+  try {
+  const sessionRaw = window.localStorage.getItem("demo.session");
+  const sessionKey = sessionRaw ? JSON.parse(sessionRaw) : null;
+  if (sessionKey) {
+    const accountsRaw = window.localStorage.getItem("demo.accounts");
+    const accounts = accountsRaw ? JSON.parse(accountsRaw) : {};
+    if (accounts && accounts[sessionKey]) return true;
   }
+} catch (error) {
+  // ignore
+}
 
   return false;
 }
