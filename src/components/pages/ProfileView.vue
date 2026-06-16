@@ -74,9 +74,18 @@
             </div>
           </div>
           <div v-else class="pending-bank">
-            <i class="ri-time-line"></i>
-            <p>Bank account verification pending. Please complete within 30 days.</p>
-          </div>
+  <i class="ri-time-line"></i>
+  <div>
+    <p>Bank account verification pending. Please complete within 30 days.</p>
+    <button type="button" class="complete-now-btn" @click="showDemoAlert">
+  Complete Now
+</button>
+<div v-if="showBankDemoMsg" class="demo-alert-inline">
+  <i class="ri-information-line"></i>
+  This feature is disabled for demo.
+</div>
+  </div>
+</div>
         </section>
 
       </div>
@@ -86,7 +95,7 @@
 </template>
 
 <script setup>
-import { computed } from "vue";
+import { computed, ref} from "vue";
 import { useDemoStore } from "../../stores/useDemoStore.js";
 import AppNavbar from "../AppNavbar.vue";
 import Footer from "../FooterView.vue";
@@ -102,6 +111,13 @@ const initials = computed(() => {
 function formatDate(iso) {
   if (!iso) return "—";
   return new Date(iso).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+const showBankDemoMsg = ref(false);
+
+function showDemoAlert() {
+  showBankDemoMsg.value = true;
+  setTimeout(() => { showBankDemoMsg.value = false; }, 3000);
 }
 
 function maskPan(pan) {
@@ -151,6 +167,21 @@ function maskAccount(acc) {
   border-bottom: 1px solid #edf2f7;
 }
 
+.demo-alert-inline {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #fffbeb;
+  border: 1px solid rgba(217,119,6,0.3);
+  color: #92400e;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.demo-alert-inline i { font-size: 14px; flex-shrink: 0; }
+
 .avatar-row { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
 .avatar {
   width: 56px; height: 56px;
@@ -170,6 +201,23 @@ function maskAccount(acc) {
 .role-badge.distributor { background: rgba(0,61,165,0.08); color: #003da5; }
 .role-badge.customer { background: rgba(22,163,74,0.08); color: #16a34a; }
 .ba-id { color: #003da5; font-family: monospace; font-size: 14px; }
+
+.complete-now-btn {
+  margin-top: 8px;
+  background: transparent;
+  border: 1.5px solid #d97706;
+  color: #d97706;
+  border-radius: 999px;
+  padding: 5px 16px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s;
+}
+.complete-now-btn:hover {
+  background: #fffbeb;
+}
 
 .info-rows { display: flex; flex-direction: column; gap: 0; }
 .info-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #f0f4fa; font-size: 13px; }
