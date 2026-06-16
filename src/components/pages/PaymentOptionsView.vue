@@ -204,10 +204,10 @@
               </div>
             </div>
             <div class="summary-totals">
-              <div class="total-row"><span>Subtotal</span><span>{{ formatRs(orderSubtotal) }}</span></div>
-              <div class="total-row"><span>Shipping</span><span class="free-tag">Free</span></div>
-              <div class="total-row grand"><span>Total</span><strong>{{ formatRs(orderSubtotal) }}</strong></div>
-            </div>
+  <div class="total-row"><span>Subtotal</span><span>{{ formatRs(orderSubtotal) }}</span></div>
+  <div class="total-row"><span>Shipping & Handling</span><span>{{ formatRs(totalShipping) }}</span></div>
+  <div class="total-row grand"><span>Total</span><strong>{{ formatRs(orderTotal) }}</strong></div>
+</div>
           </div>
 
           <div class="cta-group">
@@ -221,7 +221,8 @@
               @click="proceedToGateway"
             >
               <i class="ri-lock-line"></i>
-              Proceed to Pay {{ formatRs(orderSubtotal) }}
+              <!-- change orderSubtotal to orderTotal -->
+              Proceed to Pay {{ formatRs(orderTotal) }}
             </button>
           </div>
 
@@ -240,7 +241,7 @@
           <div class="gw-left">
             <div class="gw-amount-box">
               <p class="gw-to-pay">To Pay</p>
-              <p class="gw-amount">₹ {{ formatAmount(orderSubtotal) }}</p>
+              <p class="gw-amount">₹ {{ formatAmount(orderTotal) }}</p>
               <div class="gw-expiry-tag">
                 <i class="ri-time-line"></i> Link expiry: {{ gatewayExpiry }}
               </div>
@@ -332,9 +333,9 @@
           <p class="otp-sub">An OTP has been sent to your registered mobile number ending in <strong>••••{{ otpMaskedPhone }}</strong></p>
 
           <div class="otp-amount-strip">
-            <span>Amount</span>
-            <strong>₹ {{ formatAmount(orderSubtotal) }}</strong>
-          </div>
+  <span>Amount</span>
+  <strong>₹ {{ formatAmount(orderTotal) }}</strong>
+</div>
 
           <div class="otp-input-row">
             <input
@@ -373,7 +374,7 @@
           <div class="processing-spinner"></div>
           <p class="processing-title">Processing Payment</p>
           <p class="processing-sub">Please do not close or refresh this page...</p>
-          <div class="processing-amount">₹ {{ formatAmount(orderSubtotal) }}</div>
+          <div class="processing-amount">₹ {{ formatAmount(orderTotal) }}</div>
         </div>
       </div>
 
@@ -392,7 +393,7 @@
           </div>
           <div class="success-rows">
             <div class="success-row"><span>Payment Method</span><strong>{{ successPaymentLabel }}</strong></div>
-            <div class="success-row"><span>Amount Paid</span><strong>{{ formatRs(orderSubtotal) }}</strong></div>
+            <div class="success-row"><span>Amount Paid</span><strong>{{ formatRs(orderTotal) }}</strong></div>
             <div class="success-row"><span>Transaction ID</span><strong>{{ generatedTxnId }}</strong></div>
             <div class="success-row"><span>Date & Time</span><strong>{{ paymentTimestamp }}</strong></div>
             <div class="success-row">
@@ -407,9 +408,9 @@
               <span class="success-item-price">{{ formatRs(getLineTotal(item)) }}</span>
             </div>
             <div class="success-item-row grand-row">
-              <span>Total</span>
-              <strong>{{ formatRs(orderSubtotal) }}</strong>
-            </div>
+  <span>Total</span>
+  <strong>{{ formatRs(orderTotal) }}</strong>
+</div>
           </div>
         </div>
 
@@ -428,6 +429,7 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { useDemoStore } from "../../stores/useDemoStore.js";
 import { useRouter } from "vue-router";
 import { getCustomerAddress, getToken, refreshCart } from "rdep-ecom-sdk";
 import { useAppStore } from "../../stores/useAppStore.js";
@@ -439,6 +441,7 @@ import Footer from "../FooterView.vue";
 
 const cartStore = useCartStore();
 const appStore = useAppStore();
+const demoStore = useDemoStore();
 const router = useRouter();
 
 // ── SCREENS: select | gateway | cardOtp | processing | success ──
@@ -495,6 +498,28 @@ const productLookup = (() => {
     byProductCode: mapByProductId,
   };
 })();
+
+const shippingLookup = (() => {
+  const map = {};
+  for (const product of allProducts) {
+    for (const variant of product.variants) {
+      const cost = variant.shippingCost || product.shippingCost || 0;
+      map[`${product.id}-${variant.name}`] = cost;
+      if (variant.productCode) map[variant.productCode] = cost;
+    }
+  }
+  return map;
+})();
+
+function getShippingCost(item) {
+  return shippingLookup[item.key] || shippingLookup[item.productId] || 0;
+}
+
+const totalShipping = computed(() =>
+  checkoutItems.value.reduce((sum, item) => sum + getShippingCost(item) * (Number(item.quantity) || 1), 0)
+);
+
+const orderTotal = computed(() => orderSubtotal.value + totalShipping.value);
 
 function hydrateItems(items) {
   return items.map((item) => {
@@ -724,6 +749,28 @@ async function processPayment() {
     day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
   });
 
+  // Save order to demo store
+  demoStore.saveOrder({
+    orderId: generatedOrderId.value,
+    txnId: generatedTxnId.value,
+    paymentMethod: successPaymentLabel.value,
+    items: checkoutItems.value.map(item => ({
+      key: item.key,
+      name: item.name,
+      image: item.image,
+      quantity: item.quantity || 1,
+      price: item.price,
+    })),
+    total: orderTotal.value,    
+    address: selectedShippingAddress.value,
+    status: "Confirmed",
+  });
+
+  // Clear cart
+  cartStore.items = [];
+  cartStore.totalCount = 0;
+  cartStore.persistCartState();
+
   currentScreen.value = "success";
   window.scrollTo({ top: 0, behavior: "smooth" });
 
@@ -732,7 +779,6 @@ async function processPayment() {
     redirectCountdown.value--;
     if (redirectCountdown.value <= 0) {
       clearInterval(redirectTimer);
-      // TODO: call cartStore.clearCartAfterPayment() before redirect
       router.push({ name: "shop" });
     }
   }, 1000);
@@ -808,12 +854,14 @@ function normalizeAddressesFromResponse(response) {
 async function loadCustomerAddresses() {
   isAddressLoading.value = true;
   try {
-    const response = await getCustomerAddress();
-    addresses.value = normalizeAddressesFromResponse(response);
-    const selected = addresses.value.find(e => e.isDefault) || addresses.value[0] || null;
-    selectedShippingAddressId.value = selected?.id || null;
-    if (!addresses.value.some(e => e.id === selectedBillingAddressId.value)) {
-      selectedBillingAddressId.value = billingCandidateAddresses.value[0]?.id || null;
+    if (getToken()) {
+      const response = await getCustomerAddress();
+      addresses.value = normalizeAddressesFromResponse(response);
+      const selected = addresses.value.find(e => e.isDefault) || addresses.value[0] || null;
+      selectedShippingAddressId.value = selected?.id || null;
+      if (!addresses.value.some(e => e.id === selectedBillingAddressId.value)) {
+        selectedBillingAddressId.value = billingCandidateAddresses.value[0]?.id || null;
+      }
     }
   } catch (e) { /* keep fallback */ } finally {
     isAddressLoading.value = false;
@@ -963,27 +1011,27 @@ async function loadCheckoutData() {
   isLoading.value = true;
   errorMessage.value = "";
 
-  // Seed from cartStore immediately so the summary isn't blank while loading
   if (cartStore.items?.length) {
     checkoutItems.value = hydrateItems([...cartStore.items]);
+  }
+
+  if (!getToken()) {
+    // Demo/guest session — no real backend token, local cart data is final.
+    isLoading.value = false;
+    return;
   }
 
   try {
     await cartStore.syncGuestCartAfterLogin();
     await cartStore.refreshCartData();
 
-    // After refresh, re-hydrate from store (covers guest / not-logged-in case)
     if (cartStore.items?.length) {
       checkoutItems.value = hydrateItems([...cartStore.items]);
     }
 
     const cartId = Number(cartStore.cartMeta?.cartId || 0);
-    if (!cartId) {
-      // No API cart — local hydrated items are enough for the demo
-      return;
-    }
+    if (!cartId) return;
 
-    // Try to get fresher data from the API
     const response = await refreshCart({
       operation: "Refresh cart",
       cartId,
@@ -994,15 +1042,13 @@ async function loadCheckoutData() {
 
     const apiItems = normalizeItemsFromResponse(response);
     if (apiItems.length) {
-      // Prefer API quantity/price but hydrate images/names from local products
       checkoutItems.value = hydrateItems(apiItems);
     }
   } catch (error) {
-    // Already seeded from cartStore above — just surface the error message
-    errorMessage.value =
-      error?.response?.data?.statusMessage ||
-      error?.message ||
-      "Failed to load checkout details.";
+    const message = error?.response?.data?.statusMessage || error?.message || "";
+    if (!/token/i.test(message)) {
+      errorMessage.value = message || "Failed to load checkout details.";
+    }
   } finally {
     isLoading.value = false;
   }

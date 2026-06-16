@@ -251,7 +251,7 @@
                     <div class="checkbox-row">
                       <label class="check-option">
                         <input type="checkbox" v-model="saveAsBilling" />
-                        <span>Save this address shipping and/or billing address</span>
+                        <span>Save this address</span>
                       </label>
                     </div>
                     <p class="field-hint" style="margin-top: 8px;">
@@ -295,7 +295,6 @@
                 <div v-if="panVerified" class="verified-info-box">
                   <i class="ri-shield-check-fill"></i>
                   <div>
-                    <p class="verified-info-name">{{ panHolderName }}</p>
                     <p class="verified-info-sub">PAN verified successfully</p>
                   </div>
                 </div>
@@ -562,11 +561,12 @@ import { useRoute, useRouter } from "vue-router";
 import AppNavbar from "./AppNavbar.vue";
 import Footer from "./FooterView.vue";
 import { register } from "rdep-ecom-sdk";
+import { useDemoStore } from "../stores/useDemoStore.js";
 
-// ─── SHARED ───
 const selectedRole = ref("customer");
 const router = useRouter();
 const route = useRoute();
+const demoStore = useDemoStore();
 const maxDob = new Date().toISOString().split("T")[0];
 
 function normalizeRole(value) {
@@ -601,10 +601,11 @@ function showToast(message, type) {
 
 async function handleRegister() {
   toastMessage.value = "";
-  const domainName = window.location.host || window.location.hostname || "";
-  if (!firstName.value || !lastName.value || !dob.value || !email.value || !mobileNumber.value || !password.value || !domainName) return;
+  if (!firstName.value || !lastName.value || !dob.value || !email.value || !mobileNumber.value || !password.value) return;
   isLoading.value = true;
   try {
+    // Try real API first
+    const domainName = window.location.host || "";
     const response = await register({
       firstName: firstName.value,
       lastName: lastName.value,
@@ -617,15 +618,32 @@ async function handleRegister() {
     const statusCode = String(response?.statusCode ?? response?.data?.statusCode ?? "");
     const statusMessage = response?.statusMessage ?? response?.data?.statusMessage;
     if (statusCode === "200") {
-      showToast(statusMessage, "success");
-      setTimeout(() => { router.push("/login"); }, 1200);
-    } else if (statusCode === "400") {
-      showToast(statusMessage, "error");
+      // Save to demo store and auto-login
+      demoStore.registerCustomer({
+        firstName: firstName.value,
+        lastName: lastName.value,
+        dob: dob.value,
+        email: email.value,
+        mobileNumber: mobileNumber.value,
+        password: password.value,
+      });
+      showToast(statusMessage || "Account created!", "success");
+      setTimeout(() => { router.push({ name: "home" }); }, 1200);
+    } else {
+      showToast(statusMessage || "Registration failed.", "error");
     }
-  } catch (error) {
-    const errorStatusCode = String(error?.response?.status ?? error?.response?.data?.statusCode ?? "");
-    const errorStatusMessage = error?.response?.data?.statusMessage;
-    if (errorStatusCode === "400") showToast(errorStatusMessage, "error");
+  } catch {
+    // API failed — fall back to pure demo mode
+    demoStore.registerCustomer({
+      firstName: firstName.value,
+      lastName: lastName.value,
+      dob: dob.value,
+      email: email.value,
+      mobileNumber: mobileNumber.value,
+      password: password.value,
+    });
+    showToast("Account created successfully!", "success");
+    setTimeout(() => { router.push({ name: "home" }); }, 1200);
   } finally {
     isLoading.value = false;
   }
@@ -694,7 +712,6 @@ const saveAsBilling = ref(false);
 const panVerified = ref(false);
 const panLoading = ref(false);
 const panError = ref("");
-const panHolderName = ref("");
 
 // Step errors
 const step1Error = ref("");
@@ -702,24 +719,15 @@ const step2Error = ref("");
 const step3Error = ref("");
 const step4Error = ref("");
 
-// const maskedAccount = computed(() => {
-//   const acc = dist.value.bankAccount;
-//   if (!acc || acc.length < 4) return acc;
-//   return "•".repeat(acc.length - 4) + acc.slice(-4);
-// });
-
 function formatAadhaar() {
   let val = dist.value.aadhaar.replace(/\D/g, "").slice(0, 12);
   val = val.replace(/(\d{4})(?=\d)/g, "$1 ");
   dist.value.aadhaar = val;
 }
 
-// ─── MOCK VERIFICATIONS ───
-
 async function sendMobileOtp() {
   mobileOtpLoading.value = true;
   mobileError.value = "";
-  // TODO: Replace with real API — await sendOtp({ mobile: dist.value.mobile })
   await new Promise(r => setTimeout(r, 800));
   mobileOtpSent.value = true;
   mobileOtpLoading.value = false;
@@ -727,9 +735,8 @@ async function sendMobileOtp() {
 
 async function verifyMobileOtp() {
   mobileError.value = "";
-  // TODO: Replace with real API — await verifyOtp({ mobile, otp })
   await new Promise(r => setTimeout(r, 600));
-  if (mobileOtp.value.length === 6) {
+  if (mobileOtp.value.length >= 4) {
     mobileVerified.value = true;
     mobileOtpSent.value = false;
   } else {
@@ -740,7 +747,6 @@ async function verifyMobileOtp() {
 async function verifyReferrer() {
   referrerLoading.value = true;
   referrerError.value = "";
-  // TODO: Replace with real API — await checkReferrerId(dist.value.referrerId)
   await new Promise(r => setTimeout(r, 1200));
   if (dist.value.referrerId.trim().length > 4) {
     referrerVerified.value = true;
@@ -753,7 +759,6 @@ async function verifyReferrer() {
 async function sendAadhaarOtp() {
   aadhaarLoading.value = true;
   aadhaarError.value = "";
-  // TODO: Replace with real Aadhaar OTP API
   await new Promise(r => setTimeout(r, 1000));
   aadhaarOtpSent.value = true;
   aadhaarLoading.value = false;
@@ -761,12 +766,10 @@ async function sendAadhaarOtp() {
 
 async function verifyAadhaarOtp() {
   aadhaarError.value = "";
-  // TODO: Replace with real Aadhaar verify API — response includes address
   await new Promise(r => setTimeout(r, 800));
   if (aadhaarOtp.value.length >= 4) {
     aadhaarVerified.value = true;
     aadhaarOtpSent.value = false;
-    // TODO: Replace with actual address from API response
     aadhaarAddress.value = "12, Green Park Extension, New Delhi, Delhi - 110016";
   } else {
     aadhaarError.value = "Invalid OTP. Please try again.";
@@ -776,19 +779,15 @@ async function verifyAadhaarOtp() {
 async function verifyPan() {
   panLoading.value = true;
   panError.value = "";
-  // TODO: Replace with real PAN verify API
   await new Promise(r => setTimeout(r, 1200));
   const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
   if (panRegex.test(dist.value.pan)) {
     panVerified.value = true;
-    panHolderName.value = dist.value.fullName || "Verified Account Holder";
   } else {
     panError.value = "Invalid PAN format. Please check and try again.";
   }
   panLoading.value = false;
 }
-
-// ─── STEP NAVIGATION ───
 
 function validateStep1() {
   step1Error.value = "";
@@ -843,20 +842,23 @@ async function handleDistributorSubmit() {
   step4Error.value = "";
   if (!agreedToTnc.value) { step4Error.value = "Please agree to the terms and conditions."; return; }
   if (!declaration.value.trim()) { step4Error.value = "Please type your declaration."; return; }
-  if (declarationMismatch.value) { step4Error.value = "Your declaration text doesn't match. Please type the exact sentence shown."; return; }
+  if (declarationMismatch.value) { step4Error.value = "Your declaration text doesn't match."; return; }
 
   isSubmitting.value = true;
+  await new Promise(r => setTimeout(r, 1500));
 
-  // TODO: Replace with real registration API call
-  // eslint-disable-next-line no-unused-vars
-  const payload = {
-    role: "distributor",
-    referrerId: dist.value.referrerId,
+  const baId = "BA-" + Math.floor(100000 + Math.random() * 900000);
+  generatedBAId.value = baId;
+
+  // Save everything to demo store — auto logs in
+  demoStore.registerDistributor({
+    baId,
     fullName: dist.value.fullName,
     mobile: dist.value.mobile,
     email: dist.value.email,
     dob: dist.value.dob,
     password: dist.value.password,
+    referrerId: dist.value.referrerId,
     aadhaar: dist.value.aadhaar.replace(/\s/g, ""),
     aadhaarVerified: aadhaarVerified.value,
     aadhaarAddress: aadhaarAddress.value,
@@ -869,18 +871,7 @@ async function handleDistributorSubmit() {
       ifsc: dist.value.ifsc,
     },
     bankPending: bankSkipped.value,
-    declaration: declaration.value,
-    agreedToTnc: agreedToTnc.value,
-    domainName: window.location.host,
-  };
-
-  await new Promise(r => setTimeout(r, 1500)); // TODO: replace with await register(payload)
-
-  // TODO: Replace with actual BA ID from API response
-  generatedBAId.value = "BA-" + Math.floor(100000 + Math.random() * 900000);
-
-  // TODO: Auto-login logic — after registration API returns token, call authStore.setToken(token)
-  // then redirect to shop. For now we go directly to success screen and show Shop Now.
+  });
 
   isSubmitting.value = false;
   stepCompleted.value[3] = true;

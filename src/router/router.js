@@ -25,6 +25,8 @@ const routes = [
     name: "register",
     component: NewRegister,
   },
+  { path: "/profile", name: "profile", component: () => import("../components/pages/ProfileView.vue") },
+  { path: "/orders", name: "orders", component: () => import("../components/pages/OrdersView.vue") },
   {
     path: "/",
     name: "home",
@@ -107,16 +109,27 @@ function hasAuthToken() {
   }
 
   const savedAuthRaw = window.localStorage.getItem("auth.currentUser");
-  if (!savedAuthRaw) {
-    return false;
+  if (savedAuthRaw) {
+    try {
+      const savedAuth = JSON.parse(savedAuthRaw);
+      if (String(savedAuth?.token || "").trim()) return true;
+    } catch (error) {
+      // ignore
+    }
   }
 
-  try {
-    const savedAuth = JSON.parse(savedAuthRaw);
-    return Boolean(String(savedAuth?.token || "").trim());
-  } catch (error) {
-    return false;
+  // Demo login fallback — set by useDemoStore after registration or login
+  const demoUserRaw = window.localStorage.getItem("demo.user");
+  if (demoUserRaw) {
+    try {
+      const demoUser = JSON.parse(demoUserRaw);
+      if (demoUser && demoUser.password) return true;
+    } catch (error) {
+      // ignore
+    }
   }
+
+  return false;
 }
 
 router.beforeEach((to) => {

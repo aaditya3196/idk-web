@@ -126,16 +126,38 @@
               <i class="ri-user-line"></i>
             </button>
 
-            <div class="account-dropdown" :class="{ open: isAccountMenuOpen }">
-              <button
-                type="button"
-                class="dropdown-item logout-btn"
-                @click="handleLogout"
-              >
-                <i class="ri-logout-box-r-line"></i>
-                <span>Logout</span>
-              </button>
-            </div>
+           <div class="account-dropdown" :class="{ open: isAccountMenuOpen }">
+
+  <router-link
+    to="/profile"
+    class="dropdown-item"
+    @click="closeAccountMenu"
+  >
+    <i class="ri-user-settings-line"></i>
+    <span>My Profile</span>
+  </router-link>
+
+  <router-link
+    to="/orders"
+    class="dropdown-item"
+    @click="closeAccountMenu"
+  >
+    <i class="ri-file-list-3-line"></i>
+    <span>My Orders</span>
+  </router-link>
+
+  <div class="dropdown-divider"></div>
+
+  <button
+    type="button"
+    class="dropdown-item logout-btn"
+    @click="handleLogout"
+  >
+    <i class="ri-logout-box-r-line"></i>
+    <span>Logout</span>
+  </button>
+
+</div>
           </div>
 
           <router-link
@@ -156,6 +178,7 @@
 import { useCartStore } from "../stores/useCartStore.js";
 import { useAuthStore } from "../stores/useAuthStore.js";
 import { categories, allProducts } from "../data/products.js";
+import { useDemoStore } from "../stores/useDemoStore.js";
 
 export default {
   name: "AppNavbar",
@@ -164,8 +187,8 @@ export default {
       return this.cartStore?.totalCount || 0;
     },
     isAuthenticated() {
-      return this.authStore?.isAuthenticated || false;
-    },
+  return this.authStore?.isAuthenticated || this.demoStore?.isLoggedIn || false;
+},
     isLoginRoute() {
       return this.$route?.name === "login" || this.$route?.name === "register";
     },
@@ -174,6 +197,7 @@ export default {
     return {
       cartStore: useCartStore(),
       authStore: useAuthStore(),
+      demoStore: null,
       isAccountMenuOpen: false,
       isShopMenuOpen: false,
       isMobileMenuOpen: false,
@@ -261,14 +285,19 @@ export default {
       }
     },
     async handleLogout() {
-      await this.authStore.logOut();
-      this.closeAccountMenu();
-    },
+  await this.authStore.logOut();
+  if (this.demoStore) {
+    this.demoStore.logout();
+  }
+  this.closeAccountMenu();
+  this.$router.push({ name: 'home' });
+},
   },
   mounted() {
     this.cartStore?.initializeCount();
     document.addEventListener("click", this.handleOutsideClick);
     this.fetchShopCategories();
+    this.demoStore = useDemoStore();
   },
   beforeUnmount() {
     document.removeEventListener("click", this.handleOutsideClick);
@@ -289,6 +318,12 @@ export default {
 
   font-family: "Outfit", sans-serif;
   width: 100%;
+}
+
+.dropdown-divider {
+  height: 1px;
+  background: rgba(0, 0, 0, 0.08);
+  margin: 4px 0;
 }
 
 .container {

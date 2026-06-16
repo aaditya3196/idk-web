@@ -105,6 +105,7 @@ import AppNavbar from "./AppNavbar.vue";
 import Footer from "./FooterView.vue";
 import { useAuthStore } from "../stores/useAuthStore.js";
 import { useAppStore } from "../stores/useAppStore.js";
+import { useDemoStore } from "../stores/useDemoStore.js";
 
 export default {
   name: "LoginForm",
@@ -150,37 +151,46 @@ export default {
     },
 
     async handleSubmit() {
-      this.errorMessage = "";
-      this.successMessage = "";
-      this.isSubmitting = true;
+  this.errorMessage = "";
+  this.successMessage = "";
+  this.isSubmitting = true;
 
-      try {
-        const result = await this.authStore.LogIn({
-          username: this.username,
-          password: this.password,
-        });
+  const demoStore = useDemoStore();
 
-        this.successMessage = result?.statusMessage || "Login successful";
-        if (result?.statusCode === "200") {
-          const redirectPath =
-            typeof this.$route?.query?.redirect === "string"
-              ? this.$route.query.redirect
-              : "";
-          const isSafeInternalPath =
-            redirectPath.startsWith("/") && !redirectPath.startsWith("//");
+  // Try real API first
+  try {
+    const result = await this.authStore.LogIn({
+      username: this.username,
+      password: this.password,
+    });
+    if (result?.statusCode === "200") {
+      // Also sync demo store login state
+      demoStore.login(this.username, this.password);
+      this.successMessage = result?.statusMessage || "Login successful";
+      const redirectPath = typeof this.$route?.query?.redirect === "string" ? this.$route.query.redirect : "";
+      const isSafe = redirectPath.startsWith("/") && !redirectPath.startsWith("//");
+      this.$router.push(isSafe ? redirectPath : { name: "home" });
+      return;
+    }
+  } catch {
+    // API failed — try demo login
+  }
 
-          if (isSafeInternalPath) {
-            this.$router.push(redirectPath);
-          } else {
-            this.$router.push({ name: "home" });
-          }
-        }
-      } catch (error) {
-        this.errorMessage = error.message || "Login failed";
-      } finally {
-        this.isSubmitting = false;
-      }
-    },
+  // Demo login fallback
+  const demoResult = demoStore.login(this.username, this.password);
+  if (demoResult.success) {
+    this.successMessage = demoResult.message;
+    const redirectPath = typeof this.$route?.query?.redirect === "string" ? this.$route.query.redirect : "";
+    const isSafe = redirectPath.startsWith("/") && !redirectPath.startsWith("//");
+    setTimeout(() => {
+      this.$router.push(isSafe ? redirectPath : { name: "home" });
+    }, 800);
+  } else {
+    this.errorMessage = demoResult.message;
+  }
+
+  this.isSubmitting = false;
+},
     async handleLogout() {
       this.errorMessage = "";
       this.successMessage = "";

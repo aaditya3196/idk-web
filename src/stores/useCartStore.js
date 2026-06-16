@@ -292,10 +292,8 @@ function normalizeItemFromResponse(item) {
   const product = item.product || item.productDetails || item;
   const productId = String(
     item.productId || product.productId || product.id || "",
-  ).trim();
-  const sku = String(item.sku || product.sku || "").trim();
-  
-  // Track using the unique identifier returned from the server
+  );
+  const sku = String(item.sku || product.sku || "");
   const key = productId || sku;
 
   if (!key) {
@@ -319,7 +317,7 @@ function normalizeItemFromResponse(item) {
   );
 
   return {
-    key, // Matches the compound tracking format
+    key,
     productId,
     sku,
     storeId: resolveStoreId(item, product),
@@ -984,54 +982,51 @@ export const useCartStore = defineStore("cart", {
     },
 
     async addProductToCart(product) {
-  // Use the unique compound key or SKU as the productId so the backend distinguishes items
-  const productId = String(product?.key || product?.sku || product?.productId || product?.id || "");
-  const sku = String(product?.sku || product?.key || "");
+      const productId = String(product?.productId || product?.id || "");
+      const sku = String(product?.sku || "");
 
-  const cartItem = {
-    productId,
-    sku,
-    quantity: 1,
-  };
+      const cartItem = {
+        productId,
+        sku,
+        quantity: 1,
+      };
 
-  if (!isUserAuthenticated()) {
-    this.upsertLocalItem(product, 1);
-    this.cartMeta = {
-      ...this.cartMeta,
-      guestSyncPending: true,
-    };
-    this.persistCartState();
-    return null;
-  }
+      if (!isUserAuthenticated()) {
+        this.upsertLocalItem(product, 1);
+        this.cartMeta = {
+          ...this.cartMeta,
+          guestSyncPending: true,
+        };
+        this.persistCartState();
+        return null;
+      }
 
-  try {
-    await this.syncGuestCartAfterLogin();
-    console.log("ADDING PRODUCT", product);
-    console.log("SDK PAYLOAD", cartItem);
+      try {
+        await this.syncGuestCartAfterLogin();
 
-    const response = await this.addItemWithCartContext([cartItem]);
-    console.log("ADD RESPONSE", response);
+        const response = await this.addItemWithCartContext([cartItem]);
 
-    this.lastResponse = response;
-    this.syncItemsFromResponse(response);
-    await this.refreshCartData();
+        this.lastResponse = response;
+        this.syncItemsFromResponse(response);
+        await this.refreshCartData();
 
-    this.cartMeta = {
-      ...this.cartMeta,
-      guestSyncPending: false,
-    };
-    this.persistCartState();
+        this.cartMeta = {
+          ...this.cartMeta,
+          guestSyncPending: false,
+        };
+        this.persistCartState();
 
-    return response;
-  } catch (error) {
-    this.cartMeta = {
-      ...this.cartMeta,
-      guestSyncPending: true,
-    };
-    this.persistCartState();
-    throw error;
-  }
-},
+        return response;
+      } catch (error) {
+        // Do not mix local fallback into authenticated cart display.
+        this.cartMeta = {
+          ...this.cartMeta,
+          guestSyncPending: true,
+        };
+        this.persistCartState();
+        throw error;
+      }
+    },
 
     async syncGuestCartAfterLogin() {
       if (!isUserAuthenticated()) {

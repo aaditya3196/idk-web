@@ -172,19 +172,19 @@
             </div>
 
             <div class="summary-totals">
-              <div class="total-row">
-                <span>Subtotal</span>
-                <span>{{ formatRs(orderSubtotal) }}</span>
-              </div>
-              <div class="total-row">
-                <span>Shipping</span>
-                <span class="free-tag">Free</span>
-              </div>
-              <div class="total-row grand">
-                <span>Total</span>
-                <strong>{{ formatRs(orderSubtotal) }}</strong>
-              </div>
-            </div>
+  <div class="total-row">
+    <span>Subtotal</span>
+    <span>{{ formatRs(orderSubtotal) }}</span>
+  </div>
+  <div class="total-row">
+    <span>Shipping & Handling</span>
+    <span>{{ formatRs(totalShipping) }}</span>
+  </div>
+  <div class="total-row grand">
+    <span>Total</span>
+    <strong>{{ formatRs(orderTotal) }}</strong>
+  </div>
+</div>
           </div>
 
           <!-- CTA -->
@@ -304,6 +304,28 @@ const productLookup = (() => {
     byProductCode: mapByProductId,
   };
 })();
+
+const shippingLookup = (() => {
+  const map = {};
+  for (const product of allProducts) {
+    for (const variant of product.variants) {
+      const cost = variant.shippingCost || product.shippingCost || 0;
+      map[`${product.id}-${variant.name}`] = cost;
+      if (variant.productCode) map[variant.productCode] = cost;
+    }
+  }
+  return map;
+})();
+
+function getShippingCost(item) {
+  return shippingLookup[item.key] || shippingLookup[item.productId] || 0;
+}
+
+const totalShipping = computed(() =>
+  checkoutItems.value.reduce((sum, item) => sum + getShippingCost(item) * (Number(item.quantity) || 1), 0)
+);
+
+const orderTotal = computed(() => orderSubtotal.value + totalShipping.value);
 
 function hydrateItems(items) {
   return items.map((item) => {
@@ -439,70 +461,84 @@ function normalizeAddressesFromResponse(response) {
   });
 }
 
+// Replace loadCustomerAddresses with this:
 async function loadCustomerAddresses() {
   isAddressLoading.value = true;
   try {
-    const response = await getCustomerAddress();
-    const apiAddresses = normalizeAddressesFromResponse(response);
+    if (getToken()) {
+      const response = await getCustomerAddress();
+      const apiAddresses = normalizeAddressesFromResponse(response);
 
-    if (apiAddresses.length) {
-      addresses.value = apiAddresses;
+      if (apiAddresses.length) {
+        addresses.value = apiAddresses;
+        ensureOneDefaultAddress();
+        showAddressForm.value = false;
+        addressError.value = "";
+        const selected = addresses.value.find((e) => e.isDefault) || addresses.value[0];
+        selectedAddressId.value = selected.id;
+        const maxId = addresses.value.reduce((max, e) => {
+          const n = Number(e.id);
+          return Number.isFinite(n) ? Math.max(max, n) : max;
+        }, 0);
+        addressIdCounter.value = maxId + 1;
+        return;
+      }
+    }
+  } catch {
+    // fall through to demo
+  } finally {
+    isAddressLoading.value = false;
+  }
+
+  // Demo fallback — load from localStorage
+  try {
+    const raw = localStorage.getItem("demo.addresses");
+    const saved = raw ? JSON.parse(raw) : [];
+    if (Array.isArray(saved) && saved.length) {
+      addresses.value = saved;
       ensureOneDefaultAddress();
       showAddressForm.value = false;
-      addressError.value = "";
-
-      const selected =
-        addresses.value.find((entry) => entry.isDefault) || addresses.value[0];
+      const selected = addresses.value.find((e) => e.isDefault) || addresses.value[0];
       selectedAddressId.value = selected.id;
-
-      const maxId = addresses.value.reduce((max, entry) => {
-        const idNum = Number(entry.id);
-        return Number.isFinite(idNum) ? Math.max(max, idNum) : max;
-      }, 0);
+      const maxId = saved.reduce((max, e) => Math.max(max, Number(e.id) || 0), 0);
       addressIdCounter.value = maxId + 1;
     } else {
       addresses.value = [];
       selectedAddressId.value = null;
       showAddressForm.value = true;
     }
-  } catch (error) {
-    if (!addresses.value.length) {
-      showAddressForm.value = true;
-    }
-  } finally {
-    isAddressLoading.value = false;
+  } catch {
+    showAddressForm.value = true;
   }
 }
 
 async function deleteCustomerAddressById(addressId) {
-  const encodedAddressId = encodeURIComponent(String(addressId));
-  const endpoint = `/customer-service/cws/address/${encodedAddressId}`;
-  const baseURL = String(appStore.tenantApiBaseUrl || appStore.baseUrl || "");
   const token = getToken();
-
-  const response = await fetch(`${baseURL}${endpoint}`, {
-    method: "DELETE",
-    headers: {
-      ...(token
-        ? {
-            Authorization: token.startsWith("Bearer ")
-              ? token
-              : `Bearer ${token}`,
-          }
-        : {}),
-    },
-  });
-
-  if (!response.ok) {
-    let message = "Failed to remove address.";
-    try {
-      const payload = await response.json();
-      message = payload?.statusMessage || payload?.message || message;
-    } catch (error) {
-      // keep fallback error message
+  if (token) {
+    const encodedAddressId = encodeURIComponent(String(addressId));
+    const endpoint = `/customer-service/cws/address/${encodedAddressId}`;
+    const baseURL = String(appStore.tenantApiBaseUrl || appStore.baseUrl || "");
+    const response = await fetch(`${baseURL}${endpoint}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: token.startsWith("Bearer ") ? token : `Bearer ${token}`,
+      },
+    });
+    if (!response.ok) {
+      let message = "Failed to remove address.";
+      try {
+        const payload = await response.json();
+        message = payload?.statusMessage || payload?.message || message;
+      } catch { /* ignore */ }
+      throw new Error(message);
     }
-    throw new Error(message);
+    return;
   }
+
+  // Demo fallback
+  const raw = localStorage.getItem("demo.addresses");
+  const list = (() => { try { return JSON.parse(raw) || []; } catch { return []; } })();
+  localStorage.setItem("demo.addresses", JSON.stringify(list.filter((a) => a.id !== addressId)));
 }
 
 function buildAddressPayload(
@@ -552,60 +588,100 @@ function extractAddressIdFromResponse(response) {
   return Number.isFinite(parsedId) ? parsedId : null;
 }
 
+// Replace saveCustomerAddress with this:
 async function saveCustomerAddress({
   addressId = null,
   formValue,
   isDefault,
   existingAddress = null,
 }) {
-  const hasAddressId = addressId !== null && addressId !== undefined;
-  const encodedAddressId = hasAddressId
-    ? encodeURIComponent(String(addressId))
-    : "";
-  const endpoint = hasAddressId
-    ? `/customer-service/cws/address/${encodedAddressId}`
-    : "/customer-service/cws/address";
-  const method = hasAddressId ? "PATCH" : "POST";
-  const baseURL = String(appStore.tenantApiBaseUrl || appStore.baseUrl || "");
+  // Try real API if token exists
   const token = getToken();
-  const payload = buildAddressPayload(formValue, {
-    isDefault,
-    existingAddress,
-  });
+  if (token) {
+    const hasAddressId = addressId !== null && addressId !== undefined;
+    const encodedAddressId = hasAddressId ? encodeURIComponent(String(addressId)) : "";
+    const endpoint = hasAddressId
+      ? `/customer-service/cws/address/${encodedAddressId}`
+      : "/customer-service/cws/address";
+    const method = hasAddressId ? "PATCH" : "POST";
+    const baseURL = String(appStore.tenantApiBaseUrl || appStore.baseUrl || "");
+    const payload = buildAddressPayload(formValue, { isDefault, existingAddress });
 
-  const response = await fetch(`${baseURL}${endpoint}`, {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token
-        ? {
-            Authorization: token.startsWith("Bearer ")
-              ? token
-              : `Bearer ${token}`,
-          }
-        : {}),
-    },
-    body: JSON.stringify(payload),
-  });
+    const response = await fetch(`${baseURL}${endpoint}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: token.startsWith("Bearer ") ? token : `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    });
 
-  if (!response.ok) {
-    let message = hasAddressId
-      ? "Failed to update address."
-      : "Failed to add address.";
-    try {
-      const errorPayload = await response.json();
-      message = errorPayload?.statusMessage || errorPayload?.message || message;
-    } catch (error) {
-      // keep fallback error message
+    if (!response.ok) {
+      let message = hasAddressId ? "Failed to update address." : "Failed to add address.";
+      try {
+        const err = await response.json();
+        message = err?.statusMessage || err?.message || message;
+      } catch { /* ignore */ }
+      throw new Error(message);
     }
-    throw new Error(message);
+
+    try { return await response.json(); } catch { return null; }
   }
 
-  try {
-    return await response.json();
-  } catch (error) {
+  // Demo fallback — save to localStorage
+  const raw = localStorage.getItem("demo.addresses");
+  const existing_list = (() => { try { return JSON.parse(raw) || []; } catch { return []; } })();
+
+  if (addressId !== null) {
+    // Edit
+    const updated = existing_list.map((a) =>
+      a.id === addressId
+        ? {
+            ...a,
+            addressType: formValue.addressType || a.addressType,
+            label: formValue.addressType || a.label,
+            tag: formValue.addressType || a.tag,
+            fullName: formValue.fullName || "",
+            phone: formValue.phone || "",
+            addressLine: formValue.addressLine || "",
+            addressLine1: formValue.addressLine || "",
+            city: formValue.city || "",
+            state: formValue.state || "",
+            pincode: formValue.pincode || "",
+          }
+        : a
+    );
+    localStorage.setItem("demo.addresses", JSON.stringify(updated));
     return null;
   }
+
+  // New address
+  const newId = addressIdCounter.value++;
+  const newAddr = {
+    id: newId,
+    addressType: formValue.addressType || "Home",
+    label: formValue.addressType || "Home",
+    tag: formValue.addressType || "Home",
+    fullName: formValue.fullName || "",
+    phone: formValue.phone || "",
+    addressLine: formValue.addressLine || "",
+    addressLine1: formValue.addressLine || "",
+    addressLine2: "",
+    addressLine3: "",
+    city: formValue.city || "",
+    district: formValue.city || "",
+    state: formValue.state || "",
+    country: "India",
+    pincode: formValue.pincode || "",
+    landmark: "",
+    locationUrl: "",
+    isDefault: isDefault || existing_list.length === 0,
+    fromApi: false,
+  };
+
+  const updated_list = [...existing_list, newAddr];
+  localStorage.setItem("demo.addresses", JSON.stringify(updated_list));
+  return { id: newId };
 }
 
 function normalizeItemsFromResponse(response) {
@@ -854,20 +930,27 @@ function getLineTotal(item) {
 async function loadCheckoutData() {
   isLoading.value = true;
   errorMessage.value = "";
+
+  if (!getToken()) {
+    // Demo/guest session — no real backend token, local cart data is final.
+    checkoutItems.value = hydrateItems([...(cartStore.items || [])]);
+    isLoading.value = false;
+    return;
+  }
+
   try {
     await cartStore.syncGuestCartAfterLogin();
     await cartStore.refreshCartData();
     const cartId = Number(cartStore.cartMeta?.cartId || 0);
     if (!cartId) {
       checkoutItems.value = hydrateItems([...(cartStore.items || [])]);
-      throw new Error("Cart not found. Please add products and try again.");
+      return;
     }
     checkoutCartId.value = cartId;
     const response = await refreshCart({
       operation: "Refresh cart",
       cartId,
-      customerMobileNumber:
-        cartStore.cartMeta?.customerMobileNumber || undefined,
+      customerMobileNumber: cartStore.cartMeta?.customerMobileNumber || undefined,
       customerName: "",
     });
     const apiItems = normalizeItemsFromResponse(response);
@@ -876,10 +959,10 @@ async function loadCheckoutData() {
     );
   } catch (error) {
     checkoutItems.value = hydrateItems([...(cartStore.items || [])]);
-    errorMessage.value =
-      error?.response?.data?.statusMessage ||
-      error?.message ||
-      "Failed to load checkout details.";
+    const message = error?.response?.data?.statusMessage || error?.message || "";
+    if (!/token/i.test(message)) {
+      errorMessage.value = message || "Failed to load checkout details.";
+    }
   } finally {
     isLoading.value = false;
   }

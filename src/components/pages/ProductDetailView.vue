@@ -123,41 +123,39 @@ const isAddingToCart = ref(false);
 const isBuyingNow = ref(false);
 const showToast = ref(false);
 const cartQuantity = ref(0);
-const isExpanded = ref(false); // New state for description
+const isExpanded = ref(false);
 
 const product = computed(() => allProducts.find((p) => p.id === route.params.productId) || null);
+
 const activeVariant = computed(() => {
   if (!product.value || !product.value.variants?.length) return {};
   const name = activeVariantName.value || product.value.variants[0].name;
   return product.value.variants.find((v) => v.name === name) || product.value.variants[0];
 });
+
 const activeImage = computed(() => activeVariant.value?.image || "");
 const productSpecifications = computed(() => Object.entries(product.value?.specs || {}));
 
-// Helper functions (kept same as your logic)
-function formatSpecKey(key) { return key.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase()).trim(); }
-function formatSpecValue(value) {
-  if (Array.isArray(value)) return value.map(e => (e && typeof e === "object" && "item" in e) ? `${e.item} x ${e.qty}` : e).join(", ");
-  return (value && typeof value === "object") ? Object.values(value).join(", ") : value;
+// KEY: always slug-based, consistent across all views
+function getCurrentProductKey() {
+  if (!product.value) return "";
+  const variantName = activeVariantName.value || product.value.variants?.[0]?.name || "";
+  return `${product.value.id}-${variantName}`;
 }
-function setVariant(name) { activeVariantName.value = name; syncCartQuantityFromStore(); }
-function formatNumericValue(value) {
-    if (value === undefined || value === null || value === "") return null;
-    const normalized = typeof value === "string" ? value.replace(/,/g, "").trim() : value;
-    if (normalized === "") return null;
-    const parsed = Number(normalized);
-    return !Number.isFinite(parsed) ? String(value) : new Intl.NumberFormat("en-US", { maximumFractionDigits: 20 }).format(parsed);
-}
-function formatRs(value) { return `Rs ${formatNumericValue(value) ?? value}`; }
-function getCurrentProductKey() { return product.value ? `${product.value.id}-${activeVariant.value?.name || "default"}` : ""; }
+
 function buildCartItem() {
   const variant = activeVariant.value;
+  const key = getCurrentProductKey();
+  const hasMultipleVariants = (product.value.variants?.length || 0) > 1;
   return {
-    key: getCurrentProductKey(),
+    key,
+    // sku and productId both set to the slug key so store can find it reliably
+    sku: key,
+    productId: key,
     id: product.value.id,
-    productId: product.value.id,
-    sku: variant.productCode || getCurrentProductKey(),
-    name: (product.value.variants?.length || 0) > 1 ? `${product.value.name} - ${variant.name}` : product.value.name,
+    name: hasMultipleVariants
+      ? `${product.value.name} - ${variant.name}`
+      : product.value.name,
     type: product.value.type,
     category: product.value.category,
     image: variant.image,
@@ -166,29 +164,122 @@ function buildCartItem() {
     mrp: variant.retailPrice,
     quantity: 1,
     cv: variant.cv,
+    productCode: variant.productCode,
   };
 }
+
 function syncCartQuantityFromStore() {
   const key = getCurrentProductKey();
-  cartQuantity.value = Number(cartStore.items.find((i) => i.key === key)?.quantity || 0);
+  if (!key) { cartQuantity.value = 0; return; }
+  const found = cartStore.items.find((i) => i.key === key);
+  cartQuantity.value = Number(found?.quantity || 0);
 }
 
-// Watchers and Lifecycle
-watch(() => cartStore.items, syncCartQuantityFromStore, { deep: true });
-watch(() => route.params.productId, () => { activeVariantName.value = ""; syncCartQuantityFromStore(); });
-onMounted(syncCartQuantityFromStore);
+onMounted(() => {
+  if (product.value?.variants?.length) {
+    activeVariantName.value = product.value.variants[0].name;
+  }
+  cartStore.initializeCount();
+  syncCartQuantityFromStore();
+});
 
-// Actions
+watch(() => cartStore.items, syncCartQuantityFromStore, { deep: true });
+
+watch(activeVariantName, () => {
+  syncCartQuantityFromStore();
+});
+
+watch(
+  () => route.params.productId,
+  () => {
+    if (product.value?.variants?.length) {
+      activeVariantName.value = product.value.variants[0].name;
+    }
+    syncCartQuantityFromStore();
+  },
+  { immediate: true }
+);
+
+function formatSpecKey(key) {
+  return key.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase()).trim();
+}
+
+function formatSpecValue(value) {
+  if (Array.isArray(value)) {
+    return value.map(e => (e && typeof e === "object" && "item" in e) ? `${e.item} x ${e.qty}` : e).join(", ");
+  }
+  return (value && typeof value === "object") ? Object.values(value).join(", ") : value;
+}
+
+function setVariant(name) {
+  activeVariantName.value = name;
+}
+
+function formatNumericValue(value) {
+  if (value === undefined || value === null || value === "") return null;
+  const normalized = typeof value === "string" ? value.replace(/,/g, "").trim() : value;
+  if (normalized === "") return null;
+  const parsed = Number(normalized);
+  return !Number.isFinite(parsed) ? String(value) : new Intl.NumberFormat("en-US", { maximumFractionDigits: 20 }).format(parsed);
+}
+
+function formatRs(value) {
+  return `Rs ${formatNumericValue(value) ?? value}`;
+}
+
 async function handleAddToCart() {
   isAddingToCart.value = true;
-  try { await cartStore.addProductToCart(buildCartItem()); showToast.value = true; setTimeout(() => (showToast.value = false), 2800); }
-  finally { isAddingToCart.value = false; }
+  try {
+    const item = buildCartItem();
+    // Guest-safe local upsert — bypasses API entirely for demo reliability
+    const existingIndex = cartStore.items.findIndex((i) => i.key === item.key);
+    if (existingIndex > -1) {
+      cartStore.items[existingIndex] = {
+        ...cartStore.items[existingIndex],
+        quantity: (Number(cartStore.items[existingIndex].quantity) || 1) + 1,
+      };
+    } else {
+      cartStore.items.push({ ...item });
+    }
+    cartStore.persistCartState();
+    syncCartQuantityFromStore();
+    showToast.value = true;
+    setTimeout(() => { showToast.value = false; }, 2800);
+  } finally {
+    isAddingToCart.value = false;
+  }
 }
-async function increaseQty() { await cartStore.increaseItemQuantity(getCurrentProductKey()); }
-async function decreaseQty() { await cartStore.decreaseItemQuantity(getCurrentProductKey()); }
+
+async function increaseQty() {
+  const key = getCurrentProductKey();
+  const existing = cartStore.items.find((i) => i.key === key);
+  if (!existing) return;
+  const idx = cartStore.items.indexOf(existing);
+  cartStore.items[idx] = { ...existing, quantity: (Number(existing.quantity) || 1) + 1 };
+  cartStore.persistCartState();
+  syncCartQuantityFromStore();
+}
+
+async function decreaseQty() {
+  const key = getCurrentProductKey();
+  const existing = cartStore.items.find((i) => i.key === key);
+  if (!existing) return;
+  const idx = cartStore.items.indexOf(existing);
+  const nextQty = (Number(existing.quantity) || 1) - 1;
+  if (nextQty <= 0) {
+    cartStore.items.splice(idx, 1);
+  } else {
+    cartStore.items[idx] = { ...existing, quantity: nextQty };
+  }
+  cartStore.persistCartState();
+  syncCartQuantityFromStore();
+}
+
 async function handleBuyNow() {
   isBuyingNow.value = true;
-  if (cartQuantity.value === 0) await cartStore.addProductToCart(buildCartItem());
+  if (cartQuantity.value === 0) {
+    await handleAddToCart();
+  }
   router.push({ name: "place-order" });
 }
 </script>

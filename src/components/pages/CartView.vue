@@ -124,22 +124,21 @@
           </article>
 
           <!-- SUMMARY -->
-          <div class="cart-summary-block">
-            <div class="summary-row">
-              <span class="summary-label">Subtotal</span>
-              <span class="summary-value">{{ formatRs(grandTotalAmount) }}</span>
-            </div>
-            <div class="summary-row">
-              <span class="summary-label muted"
-                >Shipping & taxes calculated at checkout</span
-              >
-            </div>
-            <div class="summary-divider"></div>
-            <div class="summary-row total-row">
-              <span class="summary-label total-label">Order Total</span>
-              <strong class="summary-total">{{ formatRs(grandTotalAmount) }}</strong>
-            </div>
-          </div>
+      <div class="cart-summary-block">
+  <div class="summary-row">
+    <span class="summary-label">Subtotal</span>
+    <span class="summary-value">{{ formatRs(grandTotalAmount) }}</span>
+  </div>
+  <div class="summary-row">
+    <span class="summary-label">Shipping & Handling</span>
+    <span class="summary-value">{{ formatRs(totalShipping) }}</span>
+  </div>
+  <div class="summary-divider"></div>
+  <div class="summary-row total-row">
+    <span class="summary-label total-label">Order Total</span>
+    <strong class="summary-total">{{ formatRs(orderTotal) }}</strong>
+  </div>
+</div>
 
           <div class="cart-actions">
             <button
@@ -267,9 +266,32 @@ function getLineTotal(item) {
   return price * qty;
 }
 
+// Shipping lookup — mirrors products.js shippingCost
+const shippingLookup = (() => {
+  const map = {};
+  for (const product of allProducts) {
+    for (const variant of product.variants) {
+      const cost = variant.shippingCost || product.shippingCost || 0;
+      map[`${product.id}-${variant.name}`] = cost;
+      if (variant.productCode) map[variant.productCode] = cost;
+    }
+  }
+  return map;
+})();
+
+function getShippingCost(item) {
+  return shippingLookup[item.key] || shippingLookup[item.productId] || 0;
+}
+
+const totalShipping = computed(() =>
+  hydratedItems.value.reduce((sum, item) => sum + getShippingCost(item) * (Number(item.quantity) || 1), 0)
+);
+
 const grandTotalAmount = computed(() =>
   hydratedItems.value.reduce((sum, item) => sum + getLineTotal(item), 0)
 );
+
+const orderTotal = computed(() => grandTotalAmount.value + totalShipping.value);
 
 async function endSwipe(key) {
   if (!isSwiping) return;
@@ -313,22 +335,36 @@ onMounted(() => {
 });
 
 async function handleIncrease(itemKey) {
-  await cartStore.increaseItemQuantity(itemKey);
+  const idx = cartStore.items.findIndex(i => i.key === itemKey);
+  if (idx === -1) return;
+  cartStore.items[idx] = { ...cartStore.items[idx], quantity: (Number(cartStore.items[idx].quantity) || 1) + 1 };
+  cartStore.persistCartState();
 }
+
 async function handleDecrease(itemKey) {
-  await cartStore.decreaseItemQuantity(itemKey);
+  const idx = cartStore.items.findIndex(i => i.key === itemKey);
+  if (idx === -1) return;
+  const nextQty = (Number(cartStore.items[idx].quantity) || 1) - 1;
+  if (nextQty <= 0) {
+    cartStore.items.splice(idx, 1);
+  } else {
+    cartStore.items[idx] = { ...cartStore.items[idx], quantity: nextQty };
+  }
+  cartStore.persistCartState();
 }
+
 async function handleRemove(itemKey) {
-  await cartStore.removeItem(itemKey);
+  const idx = cartStore.items.findIndex(i => i.key === itemKey);
+  if (idx === -1) return;
+  cartStore.items.splice(idx, 1);
+  cartStore.persistCartState();
 }
 
 async function handleCheckout() {
-  await cartStore.refreshCartData();
   await router.push({ name: "place-order" });
 }
 
 async function handleContinueShopping() {
-  await cartStore.refreshCartData();
   await router.push({ name: "shop" });
 }
 
